@@ -1,0 +1,56 @@
+/* ------- ESTILOS GENERALES ------- */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+    height: 100vh;
+    background: linear-gradient(to right, #d7e9ff, #a8cdf0);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* ------- CONTENEDOR CENTRAL ------- */
+.container {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* ------- LOGO ------- */
+.container img {
+    width: 220px;
+    margin-bottom: 20px;
+}
+
+/* ------- TÍTULO ------- */
+.container h1 {
+    font-size: 40px;
+    color: #2b3d54;
+    font-weight: bold;
+    margin-bottom: 35px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.15);
+}
+
+/* ------- BOTÓN COMENZAR ------- */
+.btn {
+    display: inline-block;
+    background-color: #2b3d54;
+    color: white;
+    padding: 12px 25px;
+    border-radius: 25px;
+    font-size: 18px;
+    text-decoration: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+    transition: 0.3s;
+}
+
+.btn:hover {
+    background-color: #1e2d40;
+    transform: translateY(-2px);
+}
