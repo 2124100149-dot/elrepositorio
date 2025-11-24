@@ -10,77 +10,86 @@ session_start();
 
 $conexion = new mysqli('localhost', 'root', '', 'healthnet');
 
-// Verificar conexión
 if ($conexion->connect_error) {
     die("Error de conexión: " . $conexion->connect_error);
 }
 
-/** 
-*$precios_especialidades = [];
-*$query_especialidades = "SELECT nombre, precio FROM especialidad";
-*$result_especialidad = $conexion->query($query_especialidad);
-*if ($result_especialidad) {
- *   while ($row = $result_especialidad->fetch_assoc()) {
-  *      $precios_especialidad[$row['nombre']] = $row['precio'];
-   * }
-*}
- */
 $servicios_hospitalarios = [];
-$query_servicios = "SELECT nombre_especialidad FROM servicios";
+$query_servicios = "SELECT nombre_servicio FROM servicios";
 $result_servicios = $conexion->query($query_servicios);
 if ($result_servicios) {
     while ($row = $result_servicios->fetch_assoc()) {
-        $servicios_hospitalarios[] = $row['nombre'];
+        $servicios_hospitalarios[] = $row['nombre_servicio'];
     }
 }
 
 $especialidades_medicas = [];
-$query_especialidades_lista = "SELECT nombre FROM especialidad";
+$query_especialidades_lista = "SELECT nombre_especialidad FROM especialidad";
 $result_especialidades_lista = $conexion->query($query_especialidades_lista);
 if ($result_especialidades_lista) {
     while ($row = $result_especialidades_lista->fetch_assoc()) {
-        $especialidades_medicas[] = $row['nombre'];
+        $especialidades_medicas[] = $row['nombre_especialidad'];
     }
 }
 
 $hospitalesPorEstado = [];
-$query_hospitales = "SELECT * FROM hospital";
+$query_hospitales = "SELECT h.hospital_pk, h.nombre, h.telefono, h.calle, h.numero, h.cp, h.horario,
+                            m.nombre_municipio, e.nombre_entidad
+                    FROM hospital h
+                    JOIN municipio m ON h.municipio_fk = m.municipio_pk
+                    JOIN entidad_federativa e ON m.entidad_fk = e.entidad_pk";
+                    
 $result_hospitales = $conexion->query($query_hospitales);
+
 if ($result_hospitales) {
     while ($row = $result_hospitales->fetch_assoc()) {
         $servicios_hospital = [];
-        $query_hospital_servicios = "SELECT s.nombre 
-                                   FROM hospital_servicios hs 
-                                   JOIN servicios s ON hs.servicio_id = s.id 
-                                   WHERE hs.hospital_id = " . $row['id'];
-        $result_servicios_hosp = $conexion->query($query_hospital_servicios);
-        if ($result_servicios_hosp) {
-            while ($servicio = $result_servicios_hosp->fetch_assoc()) {
-                $servicios_hospital[] = $servicio['nombre'];
+        
+        $query_servicios = "SELECT s.nombre_servicio 
+                           FROM servicios_hospital sh
+                           JOIN servicios s ON sh.servicio_fk = s.servicio_pk 
+                           WHERE sh.hospital_fk = ?";
+        
+        $stmt = $conexion->prepare($query_servicios);
+        $stmt->bind_param("i", $row['hospital_pk']);
+        $stmt->execute();
+        $result_servicios = $stmt->get_result();
+        
+        if ($result_servicios) {   
+            while ($servicio = $result_servicios->fetch_assoc()) {
+                $servicios_hospital[] = $servicio['nombre_servicio'];
             }
         }
-
+        
         $especialidades_hospital = [];
-        $query_hospital_especialidades = "SELECT e.nombre 
-                                        FROM hospital_especialidades he 
-                                        JOIN especialidades e ON he.especialidad_id = e.id 
-                                        WHERE he.hospital_id = " . $row['id'];
-        $result_especialidades_hosp = $conexion->query($query_hospital_especialidades);
-        if ($result_especialidades_hosp) {
-            while ($especialidad = $result_especialidades_hosp->fetch_assoc()) {
-                $especialidades_hospital[] = $especialidad['nombre'];
+        $query_especialidades = "SELECT DISTINCT esp.nombre_especialidad 
+                                FROM medico med
+                                JOIN especialidad_medico em ON med.id_medico = em.medico_fk
+                                JOIN especialidad esp ON em.especialidad_fk = esp.especialidad_pk
+                                WHERE med.id_hospital = ?";
+        
+        $stmt2 = $conexion->prepare($query_especialidades);
+        $stmt2->bind_param("i", $row['hospital_pk']);
+        $stmt2->execute();
+        $result_especialidades = $stmt2->get_result();
+        
+        if ($result_especialidades) {   
+            while ($especialidad = $result_especialidades->fetch_assoc()) {
+                $especialidades_hospital[] = $especialidad['nombre_especialidad'];
             }
         }
-
+        
+        $direccion_completa = $row['calle'] . ' #' . $row['numero'] . ', CP: ' . $row['cp'];
+        
         $hospitalesPorEstado[] = [
-            'id' => $row['id'],
+            'id' => $row['hospital_pk'],
             'nombre' => $row['nombre'],
-            'direccion' => $row['direccion'],
+            'direccion' => $direccion_completa,
             'telefono' => $row['telefono'],
-            'municipio' => $row['municipio'],
-            'estado' => $row['estado'],
-            'codigo_postal' => $row['codigo_postal'],
-            'region' => $row['region'],
+            'municipio' => $row['nombre_municipio'],
+            'estado' => $row['nombre_entidad'], 
+            'codigo_postal' => $row['cp'],
+            'horario' => $row['horario'],
             'servicios' => $servicios_hospital,
             'especialidades' => $especialidades_hospital
         ];
@@ -702,7 +711,6 @@ if (isset($_GET['logout'])) {
         </div>
     </footer>
     <script>
-        // FUNCIONES DE LOGIN
         function abrirLogin() {
             document.getElementById('modalLogin').style.display = 'block';
         }
@@ -718,7 +726,6 @@ if (isset($_GET['logout'])) {
             }
         }
 
-        // FUNCIÓN PARA AUTO-COMPLETAR DATOS DEL USUARIO
         function autoCompletarDatos() {
             <?php if (isset($_SESSION['usuario'])): ?>
                 document.getElementById('nombre').value = '<?php echo $_SESSION['usuario']['nombre']; ?>';
@@ -732,7 +739,6 @@ if (isset($_GET['logout'])) {
             <?php endif; ?>
         }
 
-        // FUNCIÓN PARA SELECCIONAR HOSPITAL
         function seleccionarHospital(nombreHospital) {
             document.getElementById('hospital').value = nombreHospital;
             document.getElementById('contacto').scrollIntoView({ behavior: 'smooth' });

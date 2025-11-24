@@ -1,10 +1,10 @@
 <?php
+require 'conexion.php';
+
 session_start();
 
 // Conexión directa y simple
-$conexion = new mysqli('localhost', 'root', '', 'healthnet');
-
-// Verificar conexión
+$conexion = conectarDB();// Verificar conexión
 if ($conexion->connect_error) {
     die("Error de conexión: " . $conexion->connect_error);
 }
@@ -15,29 +15,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $password = $_POST['password'] ?? '';
     
     if (!empty($correo) && !empty($password)) {
-        // CONSULTA PREPARADA - MÁS SEGURA
         $stmt = $conexion->prepare("SELECT correo, rol FROM usuario WHERE correo = ? AND contrasena = MD5(?)");
         $stmt->bind_param("ss", $correo, $password);
         $stmt->execute();
         $stmt->store_result();
         
         if ($stmt->num_rows > 0) {
-            // Login exitoso
             $stmt->bind_result($correo_db, $rol_db);
             $stmt->fetch();
             
             $_SESSION['correo'] = $correo_db;
             $_SESSION['rol'] = $rol_db;
-            
-            // Redirigir SEGÚN EL ROL - ESTO ES LO QUE DEBES CAMBIAR
-            if ($rol_db == 'administrador') {
+           
+            if ($rol_db == 'AdminGeneral') {
                 header("Location: admin.php");
+            } else if ($rol_db == 'AdminRegional') {
+                header("Location: admin.php"); 
             } else if ($rol_db == 'medico') {
-                header("Location: medico.php");  // <- Añade esta línea
+                header("Location: medico.php"); 
             } else if ($rol_db == 'Usuario') {
-                header("Location: paciente.php"); // <- Y esta si tienes pacientes
+                header("Location: paciente.php"); 
             } else {
-                header("Location: P_Entrar.html"); // Redirección por defecto
+                header("Location: P_Entrar.html");
             }
             exit();
         } else {
@@ -84,8 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <button type="submit" class="btn">Iniciar sesión</button>
             </form>
 
-            <p class="link">¿No tienes cuenta? <a href="registro.html">Registrate</a></p>
+            <p class="link">¿No tienes cuenta? <a href="registro.php">r</a></p>
         </div>
     </div>
+    
 </body>
 </html>
