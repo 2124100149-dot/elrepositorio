@@ -24,8 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bind_result($correo_db, $rol_db);
             $stmt->fetch();
             
-            $_SESSION['correo'] = $correo_db;
-            $_SESSION['rol'] = $rol_db;
+            $_SESSION['usuario'] = [
+    'correo' => $correo_db,
+    'rol' => $rol_db,
+    'nombre' => $correo_db // Si no tienes nombre, usa el correo temporalmente
+];
            
             if ($rol_db == 'AdminGeneral') {
                 header("Location: admin.php");

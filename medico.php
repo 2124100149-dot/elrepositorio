@@ -1,13 +1,11 @@
 <?php
 session_start();
 
-// Verificar si está logueado y es médico
 if (!isset($_SESSION['correo']) || $_SESSION['rol'] !== 'medico') {
     header("Location: inicio_s.php");
     exit();
 }
 
-// Conexión a la base de datos
 function conectarDB() {
     $conexion = new mysqli('localhost', 'root', '', 'healthnet');
     if ($conexion->connect_error) {
@@ -16,12 +14,10 @@ function conectarDB() {
     return $conexion;
 }
 
-// Obtener estadísticas del médico
 function obtenerEstadisticasMedico($correo) {
     $db = conectarDB();
     $stats = [];
     
-    // Total de citas del médico
     $stmt = $db->prepare("SELECT COUNT(*) as total FROM cita WHERE medico_correo = ?");
     $stmt->bind_param("s", $correo);
     $stmt->execute();
@@ -29,7 +25,6 @@ function obtenerEstadisticasMedico($correo) {
     $stats['total_citas'] = $result->fetch_assoc()['total'];
     $stmt->close();
     
-    // Citas de hoy
     $stmt = $db->prepare("SELECT COUNT(*) as total FROM cita WHERE medico_correo = ? AND fecha_cita = CURDATE()");
     $stmt->bind_param("s", $correo);
     $stmt->execute();
@@ -37,7 +32,6 @@ function obtenerEstadisticasMedico($correo) {
     $stats['citas_hoy'] = $result->fetch_assoc()['total'];
     $stmt->close();
     
-    // Próximas citas (próximos 7 días)
     $stmt = $db->prepare("SELECT COUNT(*) as total FROM cita WHERE medico_correo = ? AND fecha_cita BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)");
     $stmt->bind_param("s", $correo);
     $stmt->execute();
@@ -49,7 +43,6 @@ function obtenerEstadisticasMedico($correo) {
     return $stats;
 }
 
-// Obtener citas del médico
 function obtenerCitasMedico($correo) {
     $db = conectarDB();
     
@@ -74,7 +67,6 @@ function obtenerCitasMedico($correo) {
     return $citas;
 }
 
-// Obtener mensajes del médico
 function obtenerMensajesMedico($correo) {
     $db = conectarDB();
     
@@ -97,7 +89,6 @@ function obtenerMensajesMedico($correo) {
     return $mensajes;
 }
 
-// Enviar mensaje
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['enviar_mensaje'])) {
     $destinatario = $_POST['destinatario'] ?? '';
     $asunto = $_POST['asunto'] ?? '';
@@ -135,7 +126,6 @@ $mensajes = obtenerMensajesMedico($_SESSION['correo']);
     <link rel="stylesheet" href="css/estilo_M.css">
 </head>
 <body>
-    <!-- Header -->
     <header class="dashboard-header">
         <div class="container">
             <div class="header-content">
@@ -163,7 +153,6 @@ $mensajes = obtenerMensajesMedico($_SESSION['correo']);
             </nav>
 
             <main class="main-content">
-                <!-- Dashboard Section -->
                 <section id="seccion-dashboard" class="dashboard-section">
                     <h2 class="section-title">Dashboard Médico</h2>
                     
@@ -268,7 +257,6 @@ $mensajes = obtenerMensajesMedico($_SESSION['correo']);
                     </div>
                 </section>
 
-                <!-- Buzón Section -->
                 <section id="seccion-buzon" class="dashboard-section" style="display: none;">
                     <h2 class="section-title">Buzón de Mensajes</h2>
                     
@@ -331,7 +319,6 @@ $mensajes = obtenerMensajesMedico($_SESSION['correo']);
                     </form>
                 </section>
 
-                <!-- Perfil Section -->
                 <section id="seccion-perfil" class="dashboard-section" style="display: none;">
                     <h2 class="section-title">Mi Perfil Médico</h2>
                     

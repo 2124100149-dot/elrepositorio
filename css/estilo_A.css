@@ -260,3 +260,69 @@
             border-radius: 5px;
             cursor: pointer;
         }
+
+        /* Estilos para el filtro de código postal */
+.filtro-cp {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    border: 1px solid #e9ecef;
+}
+
+.cp-form .form-group {
+    display: flex;
+    gap: 10px;
+    align-items: end;
+}
+
+.cp-form label {
+    font-weight: 600;
+    margin-bottom: 5px;
+    display: block;
+}
+
+.cp-form input {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    flex: 1;
+}
+
+.resultado-cp {
+    margin-top: 15px;
+}
+
+.cp-info {
+    background: white;
+    padding: 15px;
+    border-radius: 5px;
+    border-left: 4px solid #007bff;
+}
+
+.cp-error {
+    color: #dc3545;
+    padding: 10px;
+    background: #f8d7da;
+    border-radius: 5px;
+}
+
+/* Badge para regiones */
+.badge-region {
+    background: #6f42c1;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+/* Formulario de acciones */
+.acciones-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.acciones-form .action-btn {
+    width: 100%;
+    text-align: left;
+}
