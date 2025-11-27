@@ -1,3 +1,320 @@
+<?php
+session_start();
+
+$conexion = new mysqli('localhost', 'root', '', 'healthnet');
+
+if ($conexion->connect_error) {
+    die("Error de conexión: " . $conexion->connect_error);
+}
+
+// Configuración de paginación
+$hospitalesPorPagina = 10;
+$paginaActual = isset($_GET['pagina']) ? (int)$_GET['pagina'] : 1;
+$inicio = ($paginaActual - 1) * $hospitalesPorPagina;
+
+$servicios_hospitalarios = [];
+$query_servicios = "SELECT nombre_servicio FROM servicios";
+$result_servicios = $conexion->query($query_servicios);
+if ($result_servicios) {
+    while ($row = $result_servicios->fetch_assoc()) {
+        $servicios_hospitalarios[] = $row['nombre_servicio'];
+    }
+}
+
+$especialidades_medicas = [];
+$query_especialidades_lista = "SELECT nombre_especialidad FROM especialidad";
+$result_especialidades_lista = $conexion->query($query_especialidades_lista);
+if ($result_especialidades_lista) {
+    while ($row = $result_especialidades_lista->fetch_assoc()) {
+        $especialidades_medicas[] = $row['nombre_especialidad'];
+    }
+}
+
+$hospitalesPorEstado = [];
+$query_hospitales = "SELECT h.hospital_pk, h.nombre, h.telefono, h.calle, h.numero, h.cp, h.horario,
+                            m.nombre_municipio, e.nombre_entidad
+                    FROM hospital h
+                    JOIN municipio m ON h.municipio_fk = m.municipio_pk
+                    JOIN entidad_federativa e ON m.entidad_fk = e.entidad_pk";
+                    
+$result_hospitales = $conexion->query($query_hospitales);
+
+if ($result_hospitales) {
+    while ($row = $result_hospitales->fetch_assoc()) {
+        $servicios_hospital = [];
+        
+        $query_servicios = "SELECT s.nombre_servicio 
+                           FROM servicios_hospital sh
+                           JOIN servicios s ON sh.servicio_fk = s.servicio_pk 
+                           WHERE sh.hospital_fk = ?";
+        
+        $stmt = $conexion->prepare($query_servicios);
+        $stmt->bind_param("i", $row['hospital_pk']);
+        $stmt->execute();
+        $result_servicios = $stmt->get_result();
+        
+        if ($result_servicios) {   
+            while ($servicio = $result_servicios->fetch_assoc()) {
+                $servicios_hospital[] = $servicio['nombre_servicio'];
+            }
+        }
+        
+        $especialidades_hospital = [];
+        $query_especialidades = "SELECT DISTINCT esp.nombre_especialidad 
+                                FROM medico med
+                                JOIN especialidad_medico em ON med.id_medico = em.medico_fk
+                                JOIN especialidad esp ON em.especialidad_fk = esp.especialidad_pk
+                                WHERE med.id_hospital = ?";
+        
+        $stmt2 = $conexion->prepare($query_especialidades);
+        $stmt2->bind_param("i", $row['hospital_pk']);
+        $stmt2->execute();
+        $result_especialidades = $stmt2->get_result();
+        
+        if ($result_especialidades) {   
+            while ($especialidad = $result_especialidades->fetch_assoc()) {
+                $especialidades_hospital[] = $especialidad['nombre_especialidad'];
+            }
+        }
+        
+        $direccion_completa = $row['calle'] . ' #' . $row['numero'] . ', CP: ' . $row['cp'];
+        
+        $hospitalesPorEstado[] = [
+            'id' => $row['hospital_pk'],
+            'nombre' => $row['nombre'],
+            'direccion' => $direccion_completa,
+            'telefono' => $row['telefono'],
+            'municipio' => $row['nombre_municipio'],
+            'estado' => $row['nombre_entidad'], 
+            'codigo_postal' => $row['cp'],
+            'horario' => $row['horario'],
+            'servicios' => $servicios_hospital,
+            'especialidades' => $especialidades_hospital
+        ];
+    }
+}
+
+/**
+ * LISTA DOBLEMENTE CIRCULAR 
+ */
+class NodoHospital {
+    public $hospital;
+    public $siguiente;
+    public $anterior;
+    
+    public function __construct($hospital) {
+        $this->hospital = $hospital;
+        $this->siguiente = null;
+        $this->anterior = null;
+    }
+}
+
+class ListaDoblementeCircularHospitales {
+    private $cabeza;
+    private $tamaño;
+    
+    public function __construct() {
+        $this->cabeza = null;
+        $this->tamaño = 0;
+    }
+    
+    public function insertar($hospital) {
+        $nuevo = new NodoHospital($hospital);
+        
+        if ($this->cabeza === null) {
+            $this->cabeza = $nuevo;
+            $nuevo->siguiente = $nuevo;
+            $nuevo->anterior = $nuevo;
+        } else {
+            $ultimo = $this->cabeza->anterior;
+            
+            $ultimo->siguiente = $nuevo;
+            $nuevo->anterior = $ultimo;
+            $nuevo->siguiente = $this->cabeza;
+            $this->cabeza->anterior = $nuevo;
+        }
+        $this->tamaño++;
+    }
+    
+    private function normalizarTexto($texto) {
+        if (empty($texto)) return '';
+        
+        $texto = mb_strtolower($texto, 'UTF-8');
+        
+        $acentos = [
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u',
+            'à' => 'a', 'è' => 'e', 'ì' => 'i', 'ò' => 'o', 'ù' => 'u',
+            'ä' => 'a', 'ë' => 'e', 'ï' => 'i', 'ö' => 'o', 'ü' => 'u',
+            'ñ' => 'n', 'ç' => 'c'
+        ];
+        
+        return strtr($texto, $acentos);
+    }
+    
+    public function busquedaSecuencial($termino, $tipoBusqueda = 'general') {
+        if ($this->cabeza === null) return [];
+        
+        $resultados = [];
+        $actual = $this->cabeza;
+        $contador = 0;
+        
+        $terminoNormalizado = $this->normalizarTexto($termino);
+        
+        do {
+            $hospital = $actual->hospital;
+            $encontrado = false;
+            
+            switch($tipoBusqueda) {
+                case 'general':
+                    $campos = ['nombre', 'municipio', 'direccion', 'estado', 'codigo_postal'];
+                    foreach ($campos as $campo) {
+                        if (isset($hospital[$campo]) && 
+                            stripos($this->normalizarTexto($hospital[$campo]), $terminoNormalizado) !== false) {
+                            $encontrado = true;
+                            break;
+                        }
+                    }
+
+                    if (!$encontrado && isset($hospital['servicios'])) {
+                        foreach($hospital['servicios'] as $servicio) {
+                            if (stripos($this->normalizarTexto($servicio), $terminoNormalizado) !== false) {
+                                $encontrado = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!$encontrado && isset($hospital['especialidades'])) {
+                        foreach($hospital['especialidades'] as $especialidad) {
+                            if (stripos($this->normalizarTexto($especialidad), $terminoNormalizado) !== false) {
+                                $encontrado = true;
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                    
+                case 'servicios':
+                    if (isset($hospital['servicios'])) {
+                        foreach($hospital['servicios'] as $servicio) {
+                            if (stripos($this->normalizarTexto($servicio), $terminoNormalizado) !== false) {
+                                $encontrado = true;
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                    
+                case 'especialidades':
+                    if (isset($hospital['especialidades'])) {
+                        foreach($hospital['especialidades'] as $especialidad) {
+                            if (stripos($this->normalizarTexto($especialidad), $terminoNormalizado) !== false) {
+                                $encontrado = true;
+                                break;
+                            }
+                        }
+                    }
+                    break;
+            }
+            
+            if ($encontrado) {
+                $resultados[] = $hospital;
+            }
+            
+            $actual = $actual->siguiente;
+            $contador++;
+        } while ($actual !== $this->cabeza && $contador < $this->tamaño);
+        
+        return $resultados;
+    }
+    
+    public function obtenerTodos() {
+        if ($this->cabeza === null) return [];
+        
+        $datos = [];
+        $actual = $this->cabeza;
+        $contador = 0;
+        
+        do {
+            $datos[] = $actual->hospital;
+            $actual = $actual->siguiente;
+            $contador++;
+        } while ($actual !== $this->cabeza && $contador < $this->tamaño);
+        
+        return $datos;
+    }
+    
+    public function obtenerPorPagina($inicio, $cantidad) {
+        $todos = $this->obtenerTodos();
+        return array_slice($todos, $inicio, $cantidad);
+    }
+    
+    public function obtenerTotal() {
+        return $this->tamaño;
+    }
+}
+
+$listaHospitales = new ListaDoblementeCircularHospitales();
+foreach ($hospitalesPorEstado as $hospital) {
+    $listaHospitales->insertar($hospital);
+}
+
+$resultadosBusqueda = [];
+$terminoBusqueda = '';
+$tipoBusqueda = 'general';
+$mostrarResultados = false;
+
+if (isset($_GET['buscar']) && !empty(trim($_GET['busqueda']))) {
+    $terminoBusqueda = trim($_GET['busqueda']);
+    $tipoBusqueda = isset($_GET['tipo_busqueda']) ? $_GET['tipo_busqueda'] : 'general';
+    $resultadosBusqueda = $listaHospitales->busquedaSecuencial($terminoBusqueda, $tipoBusqueda);
+    $mostrarResultados = true;
+} else {
+    $resultadosBusqueda = $listaHospitales->obtenerTodos();
+    $mostrarResultados = true;
+    $terminoBusqueda = '';
+}
+
+// Calcular paginación
+$totalHospitales = count($resultadosBusqueda);
+$totalPaginas = ceil($totalHospitales / $hospitalesPorPagina);
+
+// Obtener hospitales para la página actual
+$hospitalesPagina = array_slice($resultadosBusqueda, $inicio, $hospitalesPorPagina);
+
+if (isset($_POST['login'])) {
+    $username = $_POST['username'];
+    $password = $_POST['password'];
+    
+    $query_usuario = "SELECT * FROM usuario WHERE username = ? AND password = MD5(?)";
+    $stmt = $conexion->prepare($query_usuario);
+    $stmt->bind_param("ss", $username, $password);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows === 1) {
+        $usuario = $result->fetch_assoc();
+        $_SESSION['usuario'] = [
+            'username' => $usuario['username'],
+            'nombre' => $usuario['nombre'],
+            'email' => $usuario['email'],
+            'telefono' => $usuario['telefono'],
+            'tipo' => $usuario['tipo']
+        ];
+        header("Location: inicio_s.php");
+        exit();
+    } else {
+        $error_login = "Usuario o contraseña incorrectos";
+    }
+}
+
+// Función auxiliar para obtener tipo de póliza
+function obtenerTipoPoliza() {
+    // Esta función debería obtener el tipo de póliza real del usuario
+    // Por ahora, devolvemos un valor de ejemplo
+    return 'Normal'; // o 'Premium'
+}
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -6,13 +323,15 @@
     <title>HealthNet - Sistema de Pacientes</title>
     <style>
         :root {
-            --primary: #2c3e50;
-            --secondary: #3498db;
-            --accent: #e74c3c;
-            --light: #ecf0f1;
+            --primary: #87CEEB; /* Azul cielo principal */
+            --secondary: #4682B4; /* Azul acero para contraste */
+            --accent: #FF6B6B; /* Rojo coral para acentos */
+            --light: #F0F8FF; /* Azul alice para fondos claros */
             --success: #27ae60;
             --warning: #f39c12;
-            --dark: #34495e;
+            --dark: #2C3E50; /* Azul oscuro para texto */
+            --sky-light: #E1F5FE;
+            --sky-medium: #B3E5FC;
         }
         
         * {
@@ -23,8 +342,8 @@
         }
         
         body {
-            background-color: #f5f7fa;
-            color: #333;
+            background-color: var(--light);
+            color: var(--dark);
             line-height: 1.6;
         }
         
@@ -40,7 +359,7 @@
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
             padding: 1rem 0;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 15px rgba(135, 206, 235, 0.3);
             position: sticky;
             top: 0;
             z-index: 1000;
@@ -84,7 +403,7 @@
         
         /* User Panel */
         .user-panel {
-            background: var(--dark);
+            background: var(--secondary);
             color: white;
             padding: 8px 0;
             font-size: 0.9rem;
@@ -104,7 +423,7 @@
         }
         
         .user-actions a:hover {
-            color: var(--secondary);
+            color: var(--sky-light);
         }
         
         /* Main Content */
@@ -117,7 +436,8 @@
             width: 250px;
             background: white;
             padding: 20px;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+            box-shadow: 2px 0 10px rgba(135, 206, 235, 0.1);
+            border-right: 1px solid var(--sky-medium);
         }
         
         .sidebar-menu {
@@ -133,13 +453,15 @@
             padding: 12px 15px;
             color: var(--dark);
             text-decoration: none;
-            border-radius: 5px;
+            border-radius: 8px;
             transition: all 0.3s;
+            border-left: 3px solid transparent;
         }
         
         .sidebar-menu a:hover, .sidebar-menu a.active {
-            background: var(--secondary);
-            color: white;
+            background: var(--sky-light);
+            color: var(--secondary);
+            border-left-color: var(--primary);
         }
         
         .content-area {
@@ -147,19 +469,20 @@
             padding: 20px;
             background: white;
             margin: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(135, 206, 235, 0.1);
+            border: 1px solid var(--sky-medium);
         }
         
         /* Page Headers */
         .page-header {
             margin-bottom: 25px;
             padding-bottom: 15px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 2px solid var(--sky-light);
         }
         
         .page-header h2 {
-            color: var(--primary);
+            color: var(--secondary);
             font-size: 1.8rem;
             margin-bottom: 5px;
         }
@@ -167,32 +490,34 @@
         /* Cards */
         .card {
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(135, 206, 235, 0.1);
+            padding: 25px;
             margin-bottom: 20px;
-            border-left: 4px solid var(--secondary);
+            border-left: 4px solid var(--primary);
+            border: 1px solid var(--sky-medium);
         }
         
         .card-header {
             display: flex;
-            justify-content: between;
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 15px;
         }
         
         .card-title {
             font-size: 1.3rem;
-            color: var(--primary);
+            color: var(--secondary);
             margin: 0;
         }
         
         /* Search Section */
         .search-section {
-            background: linear-gradient(135deg, var(--primary), var(--dark));
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
             padding: 30px 0;
             margin-bottom: 30px;
+            border-radius: 12px;
         }
         
         .search-container {
@@ -209,8 +534,9 @@
             flex: 1;
             padding: 12px 15px;
             border: none;
-            border-radius: 4px 0 0 4px;
+            border-radius: 8px 0 0 8px;
             font-size: 1rem;
+            background: rgba(255,255,255,0.95);
         }
         
         .search-box button {
@@ -218,13 +544,14 @@
             color: white;
             border: none;
             padding: 0 20px;
-            border-radius: 0 4px 4px 0;
+            border-radius: 0 8px 8px 0;
             cursor: pointer;
             transition: background 0.3s;
+            font-weight: 600;
         }
         
         .search-box button:hover {
-            background: #c0392b;
+            background: #ff5252;
         }
         
         .filter-buttons {
@@ -241,6 +568,7 @@
             border-radius: 20px;
             cursor: pointer;
             transition: all 0.3s;
+            font-size: 0.9rem;
         }
         
         .filter-btn.active, .filter-btn:hover {
@@ -251,32 +579,33 @@
         /* Hospital Cards */
         .hospital-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             gap: 20px;
             margin-top: 20px;
         }
         
         .hospital-card {
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(135, 206, 235, 0.15);
             overflow: hidden;
             transition: transform 0.3s, box-shadow 0.3s;
+            border: 1px solid var(--sky-medium);
         }
         
         .hospital-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 8px 25px rgba(135, 206, 235, 0.2);
         }
         
         .hospital-header {
-            background: var(--secondary);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
-            padding: 15px;
+            padding: 20px;
         }
         
         .hospital-body {
-            padding: 15px;
+            padding: 20px;
         }
         
         .hospital-info {
@@ -292,6 +621,7 @@
         .hospital-info strong {
             min-width: 100px;
             display: inline-block;
+            color: var(--secondary);
         }
         
         .tags {
@@ -302,11 +632,12 @@
         }
         
         .tag {
-            background: #e1f0fa;
+            background: var(--sky-light);
             color: var(--secondary);
-            padding: 3px 8px;
-            border-radius: 12px;
+            padding: 4px 10px;
+            border-radius: 15px;
             font-size: 0.8rem;
+            border: 1px solid var(--sky-medium);
         }
         
         .tag.specialty {
@@ -316,20 +647,21 @@
         
         .btn {
             display: inline-block;
-            padding: 10px 15px;
-            background: var(--secondary);
+            padding: 12px 20px;
+            background: var(--primary);
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 8px;
             cursor: pointer;
             text-align: center;
             text-decoration: none;
-            transition: background 0.3s;
-            font-weight: 500;
+            transition: all 0.3s;
+            font-weight: 600;
         }
         
         .btn:hover {
-            background: #2980b9;
+            background: var(--secondary);
+            transform: translateY(-2px);
         }
         
         .btn-accent {
@@ -337,7 +669,7 @@
         }
         
         .btn-accent:hover {
-            background: #c0392b;
+            background: #ff5252;
         }
         
         /* Profile Section */
@@ -349,23 +681,25 @@
         .profile-sidebar {
             width: 250px;
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(135, 206, 235, 0.1);
+            padding: 25px;
             text-align: center;
+            border: 1px solid var(--sky-medium);
         }
         
         .profile-avatar {
             width: 100px;
             height: 100px;
             border-radius: 50%;
-            background: var(--secondary);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 2.5rem;
             margin: 0 auto 15px;
+            box-shadow: 0 4px 15px rgba(135, 206, 235, 0.3);
         }
         
         .profile-details {
@@ -378,26 +712,27 @@
         
         .info-label {
             font-weight: 600;
-            color: var(--primary);
-            margin-bottom: 5px;
+            color: var(--secondary);
+            margin-bottom: 8px;
         }
         
         .info-value {
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 4px;
-            border-left: 3px solid var(--secondary);
+            padding: 12px;
+            background: var(--sky-light);
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
         }
         
         /* Policy Section */
         .policy-card {
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(135, 206, 235, 0.1);
             padding: 25px;
             margin-bottom: 20px;
             position: relative;
             overflow: hidden;
+            border: 1px solid var(--sky-medium);
         }
         
         .policy-badge {
@@ -423,7 +758,7 @@
         
         .policy-features li {
             padding: 8px 0;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--sky-light);
             display: flex;
             align-items: center;
         }
@@ -450,36 +785,72 @@
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
-            color: var(--primary);
+            color: var(--secondary);
         }
         
         .form-control {
             width: 100%;
             padding: 12px 15px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            border: 1px solid var(--sky-medium);
+            border-radius: 8px;
             font-size: 1rem;
             transition: border 0.3s;
+            background: var(--light);
         }
         
         .form-control:focus {
-            border-color: var(--secondary);
+            border-color: var(--primary);
             outline: none;
+            background: white;
         }
         
         .auto-fill-btn {
-            background: #e1f0fa;
+            background: var(--sky-light);
             color: var(--secondary);
-            border: 1px dashed var(--secondary);
-            padding: 8px 15px;
-            border-radius: 4px;
+            border: 1px dashed var(--primary);
+            padding: 10px 15px;
+            border-radius: 8px;
             cursor: pointer;
             margin-bottom: 15px;
             transition: all 0.3s;
+            width: 100%;
         }
         
         .auto-fill-btn:hover {
-            background: #d1e8ff;
+            background: var(--sky-medium);
+        }
+        
+        /* Pagination */
+        .paginacion {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .pagina-btn {
+            padding: 10px 15px;
+            background: white;
+            color: var(--secondary);
+            border: 1px solid var(--sky-medium);
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        .pagina-btn:hover {
+            background: var(--sky-light);
+            border-color: var(--primary);
+        }
+        
+        .pagina-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
         }
         
         /* Modal */
@@ -498,22 +869,23 @@
         
         .modal-content {
             background: white;
-            border-radius: 8px;
+            border-radius: 12px;
             width: 90%;
             max-width: 500px;
             padding: 25px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border: 1px solid var(--sky-medium);
         }
         
         .modal-header {
             margin-bottom: 20px;
             padding-bottom: 15px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 2px solid var(--sky-light);
         }
         
         .modal-title {
             font-size: 1.5rem;
-            color: var(--primary);
+            color: var(--secondary);
             margin: 0;
         }
         
@@ -536,26 +908,43 @@
         /* Messages */
         .message {
             padding: 12px 15px;
-            border-radius: 4px;
+            border-radius: 8px;
             margin-bottom: 20px;
+            border-left: 4px solid;
         }
         
         .message.success {
             background: #d4edda;
             color: #155724;
-            border: 1px solid #c3e6cb;
+            border-color: #27ae60;
         }
         
         .message.error {
             background: #f8d7da;
             color: #721c24;
-            border: 1px solid #f5c6cb;
+            border-color: #e74c3c;
         }
         
         .message.info {
             background: #d1ecf1;
             color: #0c5460;
-            border: 1px solid #bee5eb;
+            border-color: var(--primary);
+        }
+        
+        .message.warning {
+            background: #fff3cd;
+            color: #856404;
+            border-color: #f39c12;
+        }
+        
+        /* Result Count */
+        .result-count {
+            background: var(--sky-light);
+            color: var(--secondary);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
         }
         
         /* Responsive */
@@ -590,6 +979,19 @@
                 flex-wrap: wrap;
                 justify-content: center;
             }
+            
+            .policy-actions {
+                flex-direction: column;
+            }
+            
+            .paginacion {
+                gap: 5px;
+            }
+            
+            .pagina-btn {
+                padding: 8px 12px;
+                font-size: 0.9rem;
+            }
         }
     </style>
 </head>
@@ -608,9 +1010,8 @@
                 </div>
                 <div class="user-actions">
                     <?php if (isset($_SESSION['usuario'])): ?>
-                        <a href="?logout=1">Cerrar Sesión</a>
+                        <a href="login.php">Cerrar Sesión</a>
                     <?php else: ?>
-                        <a href="#" onclick="abrirLogin()">Iniciar Sesión</a>
                     <?php endif; ?>
                 </div>
             </div>
@@ -627,10 +1028,7 @@
                 </div>
                 <nav>
                     <ul>
-                        <li><a href="#busqueda" class="active">Búsqueda</a></li>
-                        <li><a href="#perfil">Mi Perfil</a></li>
-                        <li><a href="#poliza">Mi Póliza</a></li>
-                        <li><a href="#cita">Agendar Cita</a></li>
+                        <li><a href="login.php" class="active">Cerrar sesión</a></li>
                     </ul>
                 </nav>
             </div>
@@ -647,8 +1045,6 @@
                 <li><a href="#poliza">📄 Mi Póliza</a></li>
                 <li><a href="#cita">📅 Agendar Cita</a></li>
                 <li><a href="#historial">📋 Historial Médico</a></li>
-                <li><a href="#facturacion">💰 Facturación</a></li>
-                <li><a href="#ayuda">❓ Ayuda</a></li>
             </ul>
         </div>
 
@@ -670,6 +1066,7 @@
                                 <button type="submit" name="buscar">🔍 Buscar</button>
                             </div>
                             <input type="hidden" name="tipo_busqueda" id="tipoBusqueda" value="<?php echo $tipoBusqueda; ?>">
+                            <input type="hidden" name="pagina" value="1">
                             
                             <div class="filter-buttons">
                                 <button type="button" class="filter-btn <?php echo $tipoBusqueda == 'general' ? 'active' : ''; ?>" 
@@ -695,13 +1092,13 @@
                             <?php echo empty($terminoBusqueda) ? 'Todos los Hospitales Disponibles' : 'Resultados de Búsqueda'; ?>
                         </h3>
                         <div class="result-count">
-                            <?php echo count($resultadosBusqueda); ?> hospital(es) encontrado(s)
+                            Mostrando <?php echo count($hospitalesPagina); ?> de <?php echo $totalHospitales; ?> hospital(es) - Página <?php echo $paginaActual; ?> de <?php echo $totalPaginas; ?>
                         </div>
                     </div>
 
-                    <?php if (!empty($resultadosBusqueda)): ?>
+                    <?php if (!empty($hospitalesPagina)): ?>
                         <div class="hospital-grid">
-                            <?php foreach ($resultadosBusqueda as $hospital): ?>
+                            <?php foreach ($hospitalesPagina as $hospital): ?>
                                 <div class="hospital-card">
                                     <div class="hospital-header">
                                         <h3>🏥 <?php echo $hospital['nombre']; ?></h3>
@@ -750,6 +1147,29 @@
                                 </div>
                             <?php endforeach; ?>
                         </div>
+
+                        <!-- PAGINACIÓN -->
+                        <?php if ($totalPaginas > 1): ?>
+                        <div class="paginacion">
+                            <?php if ($paginaActual > 1): ?>
+                                <a href="?<?php echo http_build_query(array_merge($_GET, ['pagina' => 1])); ?>" class="pagina-btn">« Primera</a>
+                                <a href="?<?php echo http_build_query(array_merge($_GET, ['pagina' => $paginaActual - 1])); ?>" class="pagina-btn">‹ Anterior</a>
+                            <?php endif; ?>
+
+                            <?php for ($i = max(1, $paginaActual - 2); $i <= min($totalPaginas, $paginaActual + 2); $i++): ?>
+                                <a href="?<?php echo http_build_query(array_merge($_GET, ['pagina' => $i])); ?>" 
+                                   class="pagina-btn <?php echo $i == $paginaActual ? 'active' : ''; ?>">
+                                    <?php echo $i; ?>
+                                </a>
+                            <?php endfor; ?>
+
+                            <?php if ($paginaActual < $totalPaginas): ?>
+                                <a href="?<?php echo http_build_query(array_merge($_GET, ['pagina' => $paginaActual + 1])); ?>" class="pagina-btn">Siguiente ›</a>
+                                <a href="?<?php echo http_build_query(array_merge($_GET, ['pagina' => $totalPaginas])); ?>" class="pagina-btn">Última »</a>
+                            <?php endif; ?>
+                        </div>
+                        <?php endif; ?>
+
                     <?php else: ?>
                         <div class="message info">
                             <h3>No se encontraron resultados para "<?php echo htmlspecialchars($terminoBusqueda); ?>"</h3>
@@ -759,6 +1179,7 @@
                 </div>
             </section>
 
+            <!-- Las demás secciones (Perfil, Póliza, Cita) se mantienen igual -->
             <!-- Profile Section -->
             <section id="perfil" style="display: none;">
                 <div class="page-header">
@@ -938,16 +1359,9 @@
                             <label for="especialidad">Especialidad requerida *</label>
                             <select id="especialidad" name="especialidad" class="form-control" required>
                                 <option value="">Selecciona una especialidad</option>
-                                <option value="cardiologia">Cardiología</option>
-                                <option value="pediatria">Pediatría</option>
-                                <option value="ginecologia">Ginecología</option>
-                                <option value="traumatologia">Traumatología</option>
-                                <option value="neurologia">Neurología</option>
-                                <option value="oncologia">Oncología</option>
-                                <option value="oftamologo">Oftalmología</option>
-                                <option value="cirugia">Cirugía</option>
-                                <option value="dermatologia">Dermatología</option>
-                                <option value="medicina_general">Medicina General</option>
+                                <?php foreach ($especialidades_medicas as $especialidad): ?>
+                                    <option value="<?php echo $especialidad; ?>"><?php echo $especialidad; ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         
@@ -968,6 +1382,7 @@
         </div>
     </div>
 
+    <!-- Los modales se mantienen igual -->
     <!-- Change Policy Modal -->
     <div id="modalCambioPoliza" class="modal">
         <div class="modal-content">
@@ -1050,7 +1465,6 @@
                 link.classList.remove('active');
             });
             
-            document.querySelector(`nav a[href="#${seccionId}"]`).classList.add('active');
             document.querySelector(`.sidebar-menu a[href="#${seccionId}"]`).classList.add('active');
         }
         
@@ -1059,7 +1473,7 @@
             mostrarSeccion('busqueda');
             
             // Set up navigation
-            document.querySelectorAll('nav a, .sidebar-menu a').forEach(link => {
+            document.querySelectorAll('.sidebar-menu a').forEach(link => {
                 link.addEventListener('click', function(e) {
                     e.preventDefault();
                     const target = this.getAttribute('href').substring(1);
@@ -1071,6 +1485,7 @@
         // Search functions
         function cambiarFiltro(tipo) {
             document.getElementById('tipoBusqueda').value = tipo;
+            document.querySelector('input[name="pagina"]').value = 1;
             
             // Update active filter buttons
             document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -1148,13 +1563,6 @@
             alert('Solicitud de cambio de póliza enviada. Te contactaremos para confirmar los detalles.');
             cerrarModal('modalCambioPoliza');
         });
-        
-        // Helper function to get policy type (this would come from your backend)
-        function obtenerTipoPoliza() {
-            // Esta función debería obtener el tipo de póliza real del usuario
-            // Por ahora, devolvemos un valor de ejemplo
-            return 'Normal'; // o 'Premium'
-        }
     </script>
 </body>
 </html>

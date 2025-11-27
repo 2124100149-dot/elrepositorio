@@ -1,8 +1,8 @@
 <?php
 session_start();
 
-// Conexión directa y simple
-$conexion = new mysqli('yamabiko.proxy.rlwy.net', 'root', 'JBExxPHraFCRUGRIvODbqiGvtJyhpOwl', 'healthnet', '39168');
+// Conexión para XAMPP (local)
+$conexion = new mysqli('localhost', 'root', '', 'healthnet');
 
 // Verificar conexión
 if ($conexion->connect_error) {
@@ -25,10 +25,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->fetch();
             
             $_SESSION['usuario'] = [
-    'correo' => $correo_db,
-    'rol' => $rol_db,
-    'nombre' => $correo_db // Si no tienes nombre, usa el correo temporalmente
-];
+                'correo' => $correo_db,
+                'rol' => $rol_db,
+                'nombre' => $correo_db // Si no tienes nombre, usa el correo temporalmente
+            ];
            
             if ($rol_db == 'AdminGeneral') {
                 header("Location: admin.php");
@@ -85,8 +85,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                 <button type="submit" class="btn">Iniciar sesión</button>
             </form>
-
-            <p class="link">¿No tienes cuenta? <a href="registro.html">Registrate</a></p>
         </div>
     </div>
     

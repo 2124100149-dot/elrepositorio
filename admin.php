@@ -1,7 +1,11 @@
 <?php
 session_start();
 
-
+// Verificar si la sesión existe
+if (!isset($_SESSION['usuario']) || !isset($_SESSION['usuario']['rol'])) {
+    header("Location: login.php");
+    exit();
+}
 
 $regiones_administrador = [
     'AdminGeneral' => ['Norte', 'Sur', 'Oriental', 'Occidental'],
@@ -11,7 +15,7 @@ $regiones_administrador = [
     'AdminOccidental' => ['Occidental']
 ];
 
-$region_actual = $regiones_administrador[$_SESSION['rol']] ?? [];
+$region_actual = $regiones_administrador[$_SESSION['usuario']['rol']] ?? [];
 
 function conectarDB() {
     $conexion = new mysqli('localhost', 'root', '', 'healthnet');
@@ -33,11 +37,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             case 'gestionar_citas':
                 header("Location: gestion_citas.php");
                 exit();
-            case 'configuracion_sistema':
-                header("Location: configuracion.php");
-                exit();
-            case 'backup_bd':
-                realizarBackup();
                 break;
         }
     }
@@ -66,63 +65,25 @@ function obtenerEstadisticas() {
     $db = conectarDB();
     $stats = [];
     
-    $result = $db->query("SHOW TABLES LIKE 'usuario'");
-    if ($result->num_rows == 0) {
-        $stats['total_usuarios'] = 0;
-        $stats['total_medicos'] = 0;
-        $stats['total_pacientes'] = 0;
-        $stats['total_citas'] = 0;
-        $db->close();
-        return $stats;
-    }
+    // Total de usuarios
+    $result = $db->query("SELECT COUNT(*) as total FROM usuario");
+    $stats['total_usuarios'] = $result ? $result->fetch_assoc()['total'] : 0;
     
-    $where_region = "";
-    if ($_SESSION['rol'] != 'AdminGeneral' && !empty($GLOBALS['region_actual'])) {
-        $regiones = $GLOBALS['region_actual'];
-        $check_region = $db->query("SHOW COLUMNS FROM usuario LIKE 'region'");
-        if ($check_region->num_rows > 0) {
-            $where_region = " WHERE region IN ('" . implode("','", $regiones) . "')";
-        }
-    }
+    // Total de médicos
+    $result = $db->query("SELECT COUNT(*) as total FROM medico");
+    $stats['total_medicos'] = $result ? $result->fetch_assoc()['total'] : 0;
     
-    $result = $db->query("SELECT COUNT(*) as total FROM usuario" . $where_region);
-    if ($result) {
-        $stats['total_usuarios'] = $result->fetch_assoc()['total'];
-    } else {
-        $stats['total_usuarios'] = 0;
-    }
-
-    $result = $db->query("SHOW COLUMNS FROM usuario LIKE 'rol'");
-    if ($result->num_rows > 0) {
-        $result_medicos = $db->query("SELECT COUNT(*) as total FROM usuario WHERE rol = 'medico'" . $where_region);
-        if ($result_medicos) {
-            $stats['total_medicos'] = $result_medicos->fetch_assoc()['total'];
-        } else {
-            $stats['total_medicos'] = 0;
-        }
-        
-        $result_pacientes = $db->query("SELECT COUNT(*) as total FROM usuario WHERE rol = 'paciente'" . $where_region);
-        if ($result_pacientes) {
-            $stats['total_pacientes'] = $result_pacientes->fetch_assoc()['total'];
-        } else {
-            $stats['total_pacientes'] = 0;
-        }
-    } else {
-        $stats['total_medicos'] = 0;
-        $stats['total_pacientes'] = $stats['total_usuarios'];
-    }
+    // Total de pacientes - contar directamente desde poliza
+    $result = $db->query("SELECT COUNT(*) as total FROM poliza");
+    $stats['total_pacientes'] = $result ? $result->fetch_assoc()['total'] : 0;
     
-    $result = $db->query("SHOW TABLES LIKE 'cita'");
-    if ($result->num_rows > 0) {
-        $result_citas = $db->query("SELECT COUNT(*) as total FROM cita WHERE fecha_cita >= CURDATE()");
-        if ($result_citas) {
-            $stats['total_citas'] = $result_citas->fetch_assoc()['total'];
-        } else {
-            $stats['total_citas'] = 0;
-        }
-    } else {
-        $stats['total_citas'] = 0;
-    }
+    // Citas para hoy
+    $result = $db->query("SELECT COUNT(*) as total FROM cita WHERE fecha_cita = CURDATE()");
+    $stats['total_citas'] = $result ? $result->fetch_assoc()['total'] : 0;
+    
+    // Total de hospitales
+    $result = $db->query("SELECT COUNT(*) as total FROM hospital");
+    $stats['total_hospitales'] = $result ? $result->fetch_assoc()['total'] : 0;
     
     $db->close();
     return $stats;
@@ -131,60 +92,20 @@ function obtenerEstadisticas() {
 function obtenerUsuarios() {
     $db = conectarDB();
     
-    $result = $db->query("SHOW TABLES LIKE 'usuario'");
-    if ($result->num_rows == 0) {
-        $db->close();
-        return [];
-    }
+    // Consulta MUY simplificada - solo columnas básicas
+    $query = "SELECT id_usuario, correo, rol FROM usuario ORDER BY id_usuario DESC LIMIT 10";
     
-    $result = $db->query("SHOW COLUMNS FROM usuario");
-    $columnas = [];
-    while ($row = $result->fetch_assoc()) {
-        $columnas[] = $row['Field'];
-    }
-    
-    $campos = [];
-    if (in_array('id_usuario', $columnas)) {
-        $campos[] = 'id_usuario as id';
-    } elseif (in_array('usuario_pk', $columnas)) {
-        $campos[] = 'usuario_pk as id';
-    } else {
-        $campos[] = 'id';
-    }
-    
-    $campos[] = 'correo';
-    
-    if (in_array('rol', $columnas)) {
-        $campos[] = 'rol';
-    } else {
-        $campos[] = "'usuario' as rol";
-    }
-    
-    if (in_array('fecha_creacion', $columnas)) {
-        $campos[] = 'fecha_creacion';
-    } elseif (in_array('fecha_registro', $columnas)) {
-        $campos[] = 'fecha_registro as fecha_creacion';
-    } else {
-        $campos[] = 'NOW() as fecha_creacion';
-    }
-    
-    if (in_array('region', $columnas)) {
-        $campos[] = 'region';
-    }
-    
-    $query = "SELECT " . implode(', ', $campos) . " FROM usuario ORDER BY fecha_creacion DESC LIMIT 10";
     $result = $db->query($query);
     
     $usuarios = [];
     if ($result) {
         while ($row = $result->fetch_assoc()) {
             $usuarios[] = [
-                'id' => $row['id'],
+                'id' => $row['id_usuario'],
                 'nombre' => $row['correo'],
                 'email' => $row['correo'],
                 'tipo' => ucfirst($row['rol']),
-                'fecha_registro' => $row['fecha_creacion'],
-                'region' => $row['region'] ?? 'General'
+                'fecha_registro' => 'N/A'
             ];
         }
     }
@@ -193,8 +114,44 @@ function obtenerUsuarios() {
     return $usuarios;
 }
 
+// Función para buscar por código postal
+function buscarPorCodigoPostal($cp) {
+    $db = conectarDB();
+    $resultados = [];
+    
+    if (strlen($cp) === 5) {
+        // Buscar hospitales por código postal
+        $query = "SELECT nombre, telefono, calle, numero, cp FROM hospital WHERE cp = '$cp'";
+        $result = $db->query($query);
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $resultados['hospitales'][] = $row;
+            }
+        }
+        
+        // Buscar pacientes por código postal
+        $query = "SELECT nombre, apellido1, apellido2, telefono, codigo_postal FROM poliza WHERE codigo_postal = '$cp'";
+        $result = $db->query($query);
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $resultados['pacientes'][] = $row;
+            }
+        }
+    }
+    
+    $db->close();
+    return $resultados;
+}
+
 $usuarios = obtenerUsuarios();
 $estadisticas = obtenerEstadisticas();
+
+// Procesar búsqueda por código postal
+$resultados_cp = [];
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['codigo_postal'])) {
+    $cp = $_POST['codigo_postal'];
+    $resultados_cp = buscarPorCodigoPostal($cp);
+}
 ?>
 
 <!DOCTYPE html>
@@ -211,7 +168,7 @@ $estadisticas = obtenerEstadisticas();
             <div class="header-top">
                 <div class="admin-title">
                     <h1>Bienvenido a HealthNet</h1> 
-                    <!-- <p>Hola, <?php echo $_SESSION['correo']; ?> - Rol: <?php echo $_SESSION['rol']; ?></p> -->
+                    <p>Hola, <?php echo $_SESSION['usuario']['correo']; ?> - Rol: <?php echo $_SESSION['usuario']['rol']; ?></p>
                     <?php if (!empty($region_actual)): ?>
                         <p style="color: #666; font-size: 14px; margin-top: 5px;">
                             Región: <?php echo implode(', ', $region_actual); ?>
@@ -240,6 +197,11 @@ $estadisticas = obtenerEstadisticas();
                     <div class="stat-label">Pacientes</div>
                 </div>
                 <div class="stat-card">
+                    <div class="stat-icon">🏥</div>
+                    <div class="stat-number"><?php echo $estadisticas['total_hospitales']; ?></div>
+                    <div class="stat-label">Hospitales</div>
+                </div>
+                <div class="stat-card">
                     <div class="stat-icon">📅</div>
                     <div class="stat-number"><?php echo $estadisticas['total_citas']; ?></div>
                     <div class="stat-label">Citas Hoy</div>
@@ -249,22 +211,72 @@ $estadisticas = obtenerEstadisticas();
 
         <div class="admin-content">
             <main class="content-main">
-                <!-- Filtro por Código Postal -->
+                <!-- Búsqueda por Código Postal -->
                 <section style="margin-bottom: 30px;">
-                    <h2 class="section-title">Filtro por Región</h2>
+                    <h2 class="section-title">Búsqueda por Código Postal</h2>
                     <div class="filtro-cp">
                         <form method="POST" class="cp-form">
                             <div class="form-group">
                                 <label for="codigo_postal">Buscar por Código Postal:</label>
                                 <input type="text" id="codigo_postal" name="codigo_postal" 
                                        placeholder="Ingresa código postal (5 dígitos)" 
-                                       maxlength="5" pattern="[0-9]{5}">
-                                <button type="submit" name="filtrar_cp" class="btn btn-secondary">
+                                       maxlength="5" pattern="[0-9]{5}" 
+                                       value="<?php echo isset($_POST['codigo_postal']) ? htmlspecialchars($_POST['codigo_postal']) : ''; ?>">
+                                <button type="submit" class="btn btn-secondary">
                                     🔍 Buscar
                                 </button>
                             </div>
                         </form>
-                        <div id="resultado-cp" class="resultado-cp"></div>
+                        
+                        <!-- Mostrar resultados de búsqueda -->
+                        <?php if (!empty($resultados_cp)): ?>
+                            <div class="resultados-busqueda">
+                                <?php if (isset($resultados_cp['hospitales']) && !empty($resultados_cp['hospitales'])): ?>
+                                    <div class="categoria-resultados">
+                                        <h4>Hospitales encontrados:</h4>
+                                        <div class="resultados-lista">
+                                            <?php foreach ($resultados_cp['hospitales'] as $hospital): ?>
+                                                <div class="item-resultado">
+                                                    <strong><?php echo htmlspecialchars($hospital['nombre']); ?></strong><br>
+                                                    <small>
+                                                        <?php echo htmlspecialchars($hospital['calle']); ?> #<?php echo htmlspecialchars($hospital['numero']); ?><br>
+                                                        CP: <?php echo htmlspecialchars($hospital['cp']); ?><br>
+                                                        Tel: <?php echo htmlspecialchars($hospital['telefono']); ?>
+                                                    </small>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <p>No se encontraron hospitales para este código postal.</p>
+                                <?php endif; ?>
+
+                                <?php if (isset($resultados_cp['pacientes']) && !empty($resultados_cp['pacientes'])): ?>
+                                    <div class="categoria-resultados">
+                                        <h4>Pacientes encontrados:</h4>
+                                        <div class="resultados-lista">
+                                            <?php foreach ($resultados_cp['pacientes'] as $paciente): ?>
+                                                <div class="item-resultado">
+                                                    <strong>
+                                                        <?php echo htmlspecialchars($paciente['nombre']); ?> 
+                                                        <?php echo htmlspecialchars($paciente['apellido1']); ?>
+                                                        <?php echo htmlspecialchars($paciente['apellido2']); ?>
+                                                    </strong><br>
+                                                    <small>
+                                                        CP: <?php echo htmlspecialchars($paciente['codigo_postal']); ?><br>
+                                                        Tel: <?php echo htmlspecialchars($paciente['telefono']); ?>
+                                                    </small>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <p>No se encontraron pacientes para este código postal.</p>
+                                <?php endif; ?>
+                            </div>
+                        <?php elseif ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['codigo_postal'])): ?>
+                            <p class="no-resultados">No se encontraron resultados para el código postal "<?php echo htmlspecialchars($_POST['codigo_postal']); ?>"</p>
+                        <?php endif; ?>
                     </div>
                 </section>
 
@@ -277,15 +289,13 @@ $estadisticas = obtenerEstadisticas();
                                     <th>ID</th>
                                     <th>Email</th>
                                     <th>Tipo</th>
-                                    <th>Región</th>
-                                    <th>Fecha Registro</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if (empty($usuarios)): ?>
                                     <tr>
-                                        <td colspan="5" style="text-align: center; padding: 30px; color: #666;">
-                                            No hay usuarios registrados o la tabla no existe
+                                        <td colspan="3" style="text-align: center; padding: 30px; color: #666;">
+                                            No hay usuarios registrados
                                         </td>
                                     </tr>
                                 <?php else: ?>
@@ -298,10 +308,6 @@ $estadisticas = obtenerEstadisticas();
                                                 <?php echo $usuario['tipo']; ?>
                                             </span>
                                         </td>
-                                        <td>
-                                            <span class="badge badge-region"><?php echo $usuario['region']; ?></span>
-                                        </td>
-                                        <td><?php echo $usuario['fecha_registro']; ?></td>
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
@@ -324,12 +330,6 @@ $estadisticas = obtenerEstadisticas();
                             </button>
                             <button type="submit" name="accion_rapida" value="gestionar_citas" class="action-btn">
                                 📅 Gestionar Citas
-                            </button>
-                            <button type="submit" name="accion_rapida" value="configuracion_sistema" class="action-btn">
-                                ⚙️ Configuración
-                            </button>
-                            <button type="submit" name="accion_rapida" value="backup_bd" class="action-btn">
-                                💾 Backup BD
                             </button>
                         </form>
                     </div>
