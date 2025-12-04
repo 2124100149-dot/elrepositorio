@@ -1,0 +1,127 @@
+.servicios-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.servicio-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+}
+
+.servicio-item:hover {
+    background-color: #e9e9e9;
+}
+
+.servicio-item input[type="checkbox"] {
+    margin: 0;
+}
+
+.required::after {
+    content: " *";
+    color: red;
+}
+
+.form-section {
+    margin-bottom: 25px;
+    padding: 20px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background-color: #fafafa;
+}
+
+.form-section h3 {
+    margin-top: 0;
+    color: #333;
+    border-bottom: 2px solid #007bff;
+    padding-bottom: 10px;
+}
+
+.success-message {
+    background: #d4edda;
+    color: #155724;
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    border: 1px solid #c3e6cb;
+}
+
+.error-message {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    border: 1px solid #f5c6cb;
+}
+
+.required::after {
+    content: " *";
+    color: #e74c3c;
+}
+
+.form-section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border-left: 4px solid #3498db;
+}
+
+.form-section h3 {
+    margin-top: 0;
+    color: #2c3e50;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ddd;
+}
+
+.servicios-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.servicio-item {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+.servicio-item:hover {
+    background: #f0f8ff;
+}
+
+.servicio-item input[type="checkbox"] {
+    margin-right: 10px;
+}
+
+.servicio-item label {
+    cursor: pointer;
+    margin: 0;
+    flex-grow: 1;
+}
+
+.btn-outline {
+    background: transparent;
+    color: #3498db;
+    border: 1px solid #3498db;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn-outline:hover {
+    background: #3498db;
+    color: white;
+}
